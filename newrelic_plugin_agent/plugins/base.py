@@ -481,18 +481,36 @@ class NagiosStatsPlugin(Plugin):
                                   stderr=subprocess.PIPE)
         out, err = p.communicate()
         """ Format to dict """
-        raw_data = dict()
-	raw_metrics = out.split('|')
-        for metric in re.split(';+', raw_metrics[1]):
-           try:
-               metric_data = dict()
-               key, val = metric.split('=')
-               """ Strip suffix from val """
-               m = re.match('([0-9\.]+)(.*)', val)
-	       raw_data[key.strip()] = {'label': key.strip(), 'suffix': m.group(2), 'value': m.group(1)}
-           except:
-               pass
-        data = raw_data
+        data = dict()
+	tmp_rm = out.split('|')
+        """ If we have a Length of 1 we have no metrics to load """
+        if len(tmp_rm) != 2:
+            LOGGER.info("No metric(s) to load from Nagios output.")
+            return ''
+        raw_metrics = tmp_rm[1].strip()
+        """ If we fit the 'foo=n;n;n;n; format we need not process further """
+	if re.match('^[a-zA-Z_\-\.]+=([0-9.]+[a-zA-Z]*;){4}$', raw_metrics):
+            LOGGER.info("nagios_plugin received a single metric format.")
+            metric_parts = raw_metrics.split('=')
+            metric_vals = metric_parts[1].split(';')
+            """ Strip suffix from val """
+            m = re.match('([0-9\.]+)(.*)', metric_vals[0])
+            data[metric_parts[0]] = {'label': metric_parts[0], 'suffix': m.group(2), 'value': m.group(1)}
+	elif re.match('^([a-zA-Z0-9_\-\./]+=[0-9.]+[a-zA-Z%]{0,};;;; ?)+$', raw_metrics):
+            """  We received a multi metric format """
+            LOGGER.info("nagios_plugin received a multi-metrics format.")
+            for metric in re.split(';+', raw_metrics):
+               try:
+                   metric_data = dict()
+                   key, val = metric.split('=')
+                   """ Strip suffix from val """
+                   m = re.match('([0-9\.]+)(.*)', val)
+	           data[key.strip()] = {'label': key.strip(), 'suffix': m.group(2), 'value': m.group(1)}
+               except:
+                   pass
+	else:
+            LOGGER.info("nagios_plugin received an unrecognized metrics format.")
+            return ''
         """
 	for key, val in raw_data.iteritems():
 	    current_level = data

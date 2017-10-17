@@ -20,4 +20,6 @@ available = {
     'rabbitmq': 'newrelic_plugin_agent.plugins.rabbitmq.RabbitMQ',
     'redis': 'newrelic_plugin_agent.plugins.redis.Redis',
     'riak': 'newrelic_plugin_agent.plugins.riak.Riak',
-    'uwsgi': 'newrelic_plugin_agent.plugins.uwsgi.uWSGI'}
+    'uwsgi': 'newrelic_plugin_agent.plugins.uwsgi.uWSGI',
+    'nagios_base': 'newrelic_plugin_agent.plugins.nagios_base.NagiosPlugin',
+    'mysql_replication_delay': 'newrelic_plugin_agent.plugins.mysql_replication_delay.NagiosPlugin'}
