@@ -10,6 +10,9 @@ import socket
 import tempfile
 import time
 import urlparse
+import subprocess
+import re
+import pprint
 
 LOGGER = logging.getLogger(__name__)
 
@@ -178,9 +181,6 @@ class Plugin(object):
         :rtype: dict
 
         """
-        if not value:
-            value = 0
-            
         if isinstance(value, basestring):
             value = 0
 
@@ -338,19 +338,16 @@ class HTTPStatsPlugin(Plugin):
         data = self.http_get()
         return data.content if data else ''
 
-    def http_get(self, url=None):
-        """Fetch the data from the stats URL or a specified one.
+    def http_get(self):
+        """Fetch the data from the stats URL
 
-        :param str url: URL to fetch instead of the stats URL
         :rtype: requests.models.Response
 
         """
         LOGGER.debug('Polling %s Stats at %s',
-                     self.__class__.__name__, url or self.stats_url)
-        req_kwargs = self.request_kwargs
-        req_kwargs.update({'url': url} if url else {})
+                     self.__class__.__name__, self.stats_url)
         try:
-            response = requests.get(**req_kwargs)
+            response = requests.get(**self.request_kwargs)
         except requests.ConnectionError as error:
             LOGGER.error('Error polling stats: %s', error)
             return ''
@@ -464,4 +461,59 @@ class JSONStatsPlugin(HTTPStatsPlugin):
         data = self.fetch_data()
         if data:
             self.add_datapoints(data)
+        self.finish()
+
+
+class NagiosStatsPlugin(Plugin):
+    """Extend the Plugin class overriding poll for targets that provide data
+    via Nagios protocol from an existind file base plugin.
+
+    """
+    def fetch_data(self):
+        """Fetch the data from the Nagio plugin
+
+        :rtype: str
+
+        """
+        script_args = self.config.get("script_args") or []
+        s_a = [self.config.get("script_path")] + script_args
+        p = subprocess.Popen(s_a, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE)
+        out, err = p.communicate()
+        """ Format to dict """
+        raw_data = dict()
+	raw_metrics = out.split('|')
+        for metric in re.split(';+', raw_metrics[1]):
+           try:
+               metric_data = dict()
+               key, val = metric.split('=')
+               """ Strip suffix from val """
+               m = re.match('([0-9\.]+)(.*)', val)
+	       raw_data[key.strip()] = {'label': key.strip(), 'suffix': m.group(2), 'value': m.group(1)}
+           except:
+               pass
+        data = raw_data
+        """
+	for key, val in raw_data.iteritems():
+	    current_level = data
+	    depth = len(re.split('\.', key))
+            for path in re.split('\.', key):
+	        if path not in current_level:
+	            current_level[path] = {}
+	            depth -= 1
+	            if depth == 0:
+                        """""" Strip suffix from val """"""
+                        m = re.match('([0-9.]+)(.*)', val)
+	                current_level[path] = {'label': path, 'suffix': m.group(2), 'value': m.group(1)}
+	        else:
+	            current_level = current_level[path]
+        """
+        return data if data else ''
+
+    def poll(self):
+        """Poll HTTP JSON endpoint for stats data"""
+        self.initialize()
+        data = self.fetch_data()
+        if data:
+           self.add_datapoints(data)
         self.finish()
