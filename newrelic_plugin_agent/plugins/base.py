@@ -477,56 +477,62 @@ class NagiosStatsPlugin(Plugin):
         """
         script_args = self.config.get("script_args") or []
         s_a = [self.config.get("script_path")] + script_args
-        p = subprocess.Popen(s_a, stdout=subprocess.PIPE,
-                                  stderr=subprocess.PIPE)
-        out, err = p.communicate()
+        try:
+            p = subprocess.Popen(s_a, stdout=subprocess.PIPE,
+                                 stderr=subprocess.PIPE)
+            out, err = p.communicate()
+        except:
+            LOGGER.info('Nagios PLugin Failled exucuting external plugin: "{}"'.format(err))
         """ Format to dict """
         data = dict()
-	tmp_rm = out.split('|')
-        """ If we have a Length of 1 we have no metrics to load """
+        tmp_rm = out.split('|')
         if len(tmp_rm) != 2:
             LOGGER.info("No metric(s) to load from Nagios output.")
             return ''
         raw_metrics = tmp_rm[1].strip()
-        """ If we fit the 'foo=n;n;n;n; format we need not process further """
-	if re.match('^[a-zA-Z_\-\.]+=([0-9.]+[a-zA-Z]*;){4}$', raw_metrics):
-            LOGGER.info("nagios_plugin received a single metric format.")
-            metric_parts = raw_metrics.split('=')
-            metric_vals = metric_parts[1].split(';')
-            """ Strip suffix from val """
-            m = re.match('([0-9\.]+)(.*)', metric_vals[0])
-            data[metric_parts[0]] = {'label': metric_parts[0], 'suffix': m.group(2), 'value': m.group(1)}
-	elif re.match('^([a-zA-Z0-9_\-\./]+=[0-9.]+[a-zA-Z%]{0,};;;; ?)+$', raw_metrics):
-            """  We received a multi metric format """
-            LOGGER.info("nagios_plugin received a multi-metrics format.")
-            for metric in re.split(';+', raw_metrics):
-               try:
-                   metric_data = dict()
-                   key, val = metric.split('=')
-                   """ Strip suffix from val """
-                   m = re.match('([0-9\.]+)(.*)', val)
-	           data[key.strip()] = {'label': key.strip(), 'suffix': m.group(2), 'value': m.group(1)}
-               except:
-                   pass
-	else:
+        if re.match('^([a-zA-Z0-9_\-\./]+=[0-9.]*[^;]*;([^;]?;)* ?)+', raw_metrics):
+            """  We received a matched Nagios metric format """
+            cleaned_metrics = re.sub(r'(;(([^;]*);){2,3})', ';', raw_metrics)
+            for metric in re.split(r';', cleaned_metrics):
+                if metric == '':
+                    continue
+                try:
+                    split_m = metric.split('=')
+                    key = split_m[0].strip()
+                    val = split_m[1]
+                except Exception as e:
+                    LOGGER.info('Nagios Plugin ERROR splitting metric "{}, {}={}: {}"'.format(metric, key, val, e))
+                    sys.exit()
+                """ Reject values that cannot be converted to numeric metric """
+                if not re.match('^([0-9\.]+)([a-zA-Z%]*)$', val):
+                    LOGGER.info('Nagios Plugin Rejecting value {}.'.format(val))
+                    continue
+                try:
+                    """ Strip suffix from val """
+                    m = re.match('^([0-9\.]+)([a-zA-Z%]+)?$', val)
+                    data[key] = {'label': key, 'suffix': m.group(2) or '', 'value': m.group(1)}
+                except Exception as e:
+                    LOGGER.info('Nagios Plugin ERROR processing metric "{}={}: {}"'.format(key, val, e))
+                    pass
+        else:
             LOGGER.info("nagios_plugin received an unrecognized metrics format.")
             return ''
-        """
+    """
 	for key, val in raw_data.iteritems():
-	    current_level = data
-	    depth = len(re.split('\.', key))
-            for path in re.split('\.', key):
-	        if path not in current_level:
-	            current_level[path] = {}
-	            depth -= 1
-	            if depth == 0:
-                        """""" Strip suffix from val """"""
-                        m = re.match('([0-9.]+)(.*)', val)
-	                current_level[path] = {'label': path, 'suffix': m.group(2), 'value': m.group(1)}
-	        else:
-	            current_level = current_level[path]
-        """
-        return data if data else ''
+        current_level = data
+        depth = len(re.split('\.', key))
+        for path in re.split('\.', key):
+            if path not in current_level:
+                current_level[path] = {}
+                depth -= 1
+                if depth == 0:
+                    """""" Strip suffix from val """"""
+                    m = re.match('([0-9.]+)(.*)', val)
+                    current_level[path] = {'label': path, 'suffix': m.group(2), 'value': m.group(1)}
+            else:
+                current_level = current_level[path]
+    """
+    return data if data else ''
 
     def poll(self):
         """Poll HTTP JSON endpoint for stats data"""
